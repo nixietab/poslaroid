@@ -1,11 +1,11 @@
 <resources>
-    <string name="app_name">POSlaroid Cyberciruja</string>
-    <string name="instructions">Llevate una foto impresa\nPOSlaroid</string>
-    <string name="take_photo">SACAR FOTO</string>
-    <string name="flash_turn_on">Sacando sin flash</string>
-    <string name="flash_turn_off">Sacando con flash</string>
+    <string name="app_name">POSlaroid bogobinteado</string>
+    <string name="instructions"></string>
+    <string name="take_photo">Sacar Foto</string>
+    <string name="flash_turn_on">Sin Flash</string>
+    <string name="flash_turn_off">Con Flash</string>
     <string name="switch_camera">Cambiar cámara</string>
     <string name="mirror_camera">Espejar cámara</string>
     <string name="printing">Imprimiendo…\npor favor espere</string>
-    <string name="footerText">[L]Yo estuve con\n[L]&lt;b&gt;&lt;font size=\'tall\'&gt;CyberCirujas&lt;/font&gt;&lt;/b&gt;\n[L]en el CCK\n[L]cybercirujas.rebelion.digital\n[L]\n[L]\n</string>
+    <string name="footerText">[L]&lt;b&gt;&lt;font size=\'tall\'&gt;bogos&lt;/font&gt;&lt;/b&gt;\n\n</string>
 </resources>

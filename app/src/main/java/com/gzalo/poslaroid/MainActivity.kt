@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private lateinit var cameraExecutor: ExecutorService
     private var flashMode: Int = ImageCapture.FLASH_MODE_OFF
-    private var cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+    private var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
     private var printer: EscPosPrinter? = null
     private var connection: BluetoothConnection? = null
 
@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
 
         if (allPermissionsGranted()) {
             startCamera()
+            mirrorCamera()
         } else {
             requestPermissions()
         }

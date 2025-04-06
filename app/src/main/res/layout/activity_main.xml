@@ -44,62 +44,87 @@
 
     <EditText
         android:id="@+id/footerText"
-        android:layout_width="300dp"
-        android:layout_height="200dp"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
         android:ems="10"
         android:gravity="start|top"
         android:inputType="textMultiLine"
+        android:minHeight="100dp"
         android:text="@string/footerText"
-        app:layout_constraintBottom_toTopOf="@+id/switchCamera"
+        app:layout_constraintBottom_toTopOf="@+id/buttonContainer"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="@+id/viewFinder" />
-
-    <Button
-        android:id="@+id/flashToggleButton"
-        android:layout_width="126dp"
-        android:layout_height="60dp"
-        android:layout_marginStart="8dp"
-        android:elevation="2dp"
-        android:text="@string/flash_turn_on"
-        app:layout_constraintBottom_toTopOf="@+id/image_capture_button"
         app:layout_constraintStart_toStartOf="parent" />
 
-    <Button
-        android:id="@+id/switchCamera"
-        android:layout_width="126dp"
-        android:layout_height="60dp"
+    <LinearLayout
+        android:id="@+id/buttonContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:elevation="2dp"
-        android:text="@string/switch_camera"
-        app:layout_constraintBottom_toTopOf="@+id/image_capture_button"
-        app:layout_constraintStart_toEndOf="@+id/flashToggleButton" />
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:baselineAligned="true"
+        android:weightSum="3"
+        app:layout_constraintBottom_toTopOf="@+id/image_capture_button">
 
-    <Button
-        android:id="@+id/mirrorCamera"
-        android:layout_width="126dp"
-        android:layout_height="60dp"
-        android:layout_marginStart="8dp"
-        android:elevation="2dp"
-        android:text="@string/mirror_camera"
-        app:layout_constraintBottom_toTopOf="@+id/image_capture_button"
-        app:layout_constraintStart_toEndOf="@+id/switchCamera" />
+        <Button
+            android:id="@+id/flashToggleButton"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:elevation="2dp"
+            android:text="@string/flash_turn_on"
+            android:textAllCaps="false"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/switchCamera"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:elevation="2dp"
+            android:text="@string/switch_camera"
+            android:textAllCaps="false"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/mirrorCamera"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:elevation="2dp"
+            android:text="@string/mirror_camera"
+            android:textAllCaps="false"
+            android:textSize="14sp" />
+
+    </LinearLayout>
 
     <Button
         android:id="@+id/image_capture_button"
         android:layout_width="match_parent"
-        android:layout_height="130dp"
-        android:text="@string/take_photo"
-        android:layout_marginBottom="8dp"
+        android:layout_height="80dp"
         android:layout_marginStart="8dp"
         android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:drawableStart="@drawable/ic_camera"
+        android:drawablePadding="16dp"
         android:elevation="2dp"
-        android:drawableTop="@drawable/ic_camera"
         android:gravity="center"
-        android:paddingTop="16dp"
-        android:paddingBottom="16dp"
-        android:visibility="visible"
-        android:textSize="28sp"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:text="@string/take_photo"
+        android:textAllCaps="false"
+        android:textSize="24sp"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
