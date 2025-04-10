@@ -3,10 +3,12 @@ package com.gzalo.poslaroid
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ContentValues
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -28,15 +30,24 @@ import com.dantsu.escposprinter.connection.bluetooth.BluetoothConnection
 import com.dantsu.escposprinter.connection.bluetooth.BluetoothPrintersConnections
 import com.dantsu.escposprinter.textparser.PrinterTextParserImg
 import com.gzalo.poslaroid.databinding.ActivityMainBinding
+import fi.iki.elonen.NanoHTTPD
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStream
+import java.net.InetAddress
+import java.net.NetworkInterface
 import java.text.SimpleDateFormat
-import java.util.Locale
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+private const val TAG = "Poslaroid"
+private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var viewBinding: ActivityMainBinding
+    private var webServer: WebServer? = null
 
     private var imageCapture: ImageCapture? = null
     private lateinit var cameraExecutor: ExecutorService
@@ -45,17 +56,81 @@ class MainActivity : AppCompatActivity() {
     private var printer: EscPosPrinter? = null
     private var connection: BluetoothConnection? = null
 
+    private val requiredPermissions = mutableListOf(
+        Manifest.permission.CAMERA,
+        Manifest.permission.BLUETOOTH,
+        Manifest.permission.BLUETOOTH_ADMIN,
+        Manifest.permission.INTERNET,
+        Manifest.permission.ACCESS_WIFI_STATE,
+        Manifest.permission.ACCESS_NETWORK_STATE
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+            add(Manifest.permission.BLUETOOTH_SCAN)
+        }
+    }.toTypedArray()
+
+    private val activityResultLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            var permissionGranted = true
+            permissions.entries.forEach {
+                if (it.key in requiredPermissions && !it.value)
+                    permissionGranted = false
+            }
+            if (permissionGranted) {
+                startCamera()
+                mirrorCamera()
+            } else {
+                Toast.makeText(this, "Permission request denied", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    private inner class WebServer(port: Int) : NanoHTTPD(port) {
+        override fun serve(session: IHTTPSession): Response {
+            when (session.uri) {
+                "/" -> {
+                    val inputStream = assets.open("upload.html")
+                    return newChunkedResponse(
+                        Response.Status.OK,
+                        "text/html",
+                        inputStream
+                    )
+                }
+                "/upload" -> {
+                    if (session.method == Method.POST) {
+                        val files = HashMap<String, String>()
+                        session.parseBody(files)
+                        
+                        val tempFile = files["image"]
+                        if (tempFile != null) {
+                            val bitmap = BitmapFactory.decodeFile(tempFile)
+                            if (bitmap != null) {
+                                runOnUiThread {
+                                    printBluetooth(bitmap)
+                                }
+                                return newFixedLengthResponse("Image received and printing started")
+                            }
+                        }
+                        return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "No image received")
+                    }
+                    return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "POST method required")
+                }
+                else -> return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
-    @SuppressWarnings("deprecation")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         viewBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
 
-        getWindow().setFlags(
+        window.setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        getSupportActionBar()?.hide();
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
+        supportActionBar?.hide()
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -71,13 +146,52 @@ class MainActivity : AppCompatActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        // Initialize printer connection
         connection = BluetoothPrintersConnections.selectFirstPaired()
-        if (connection == null){
+        if (connection == null) {
             Toast.makeText(baseContext, "Es necesario ir a los ajustes de bluetooth y vincular la impresora", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(baseContext, "Conectado al dispositivo: " + connection?.device?.name, Toast.LENGTH_SHORT).show()
         }
         printer = EscPosPrinter(connection, 203, 48f, 32)
+
+        // Start the web server
+        try {
+            webServer = WebServer(8080)
+            webServer?.start()
+            val ipAddress = getLocalIpAddress()
+            Toast.makeText(
+                this,
+                "Web server started at http://$ipAddress:8080",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Failed to start web server: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
+            e.printStackTrace()
+        }
+    }
+
+    private fun getLocalIpAddress(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+                    if (!address.isLoopbackAddress && address is java.net.Inet4Address) {
+                        return address.hostAddress
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return "127.0.0.1"
     }
 
     private fun mirrorCamera() {
@@ -85,45 +199,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissions() {
-        activityResultLauncher.launch(REQUIRED_PERMISSIONS)
+        activityResultLauncher.launch(requiredPermissions)
     }
 
-    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(
-            baseContext, it) == PackageManager.PERMISSION_GRANTED
+    private fun allPermissionsGranted() = requiredPermissions.all {
+        ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun switchCamera() {
-        when (cameraSelector){
-            CameraSelector.DEFAULT_BACK_CAMERA -> {
-                cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-            }
-            CameraSelector.DEFAULT_FRONT_CAMERA -> {
-                cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            }
+        cameraSelector = when (cameraSelector) {
+            CameraSelector.DEFAULT_BACK_CAMERA -> CameraSelector.DEFAULT_FRONT_CAMERA
+            else -> CameraSelector.DEFAULT_BACK_CAMERA
         }
         startCamera()
     }
 
     private fun toggleFlash() {
-        when (flashMode) {
+        flashMode = when (flashMode) {
             ImageCapture.FLASH_MODE_OFF -> {
-                flashMode = ImageCapture.FLASH_MODE_ON;
-                viewBinding.flashToggleButton.setText(R.string.flash_turn_off);
+                viewBinding.flashToggleButton.setText(R.string.flash_turn_off)
+                ImageCapture.FLASH_MODE_ON
             }
-            ImageCapture.FLASH_MODE_ON -> {
-                flashMode = ImageCapture.FLASH_MODE_OFF
-                viewBinding.flashToggleButton.setText(R.string.flash_turn_on);
+            else -> {
+                viewBinding.flashToggleButton.setText(R.string.flash_turn_on)
+                ImageCapture.FLASH_MODE_OFF
             }
         }
-
-        imageCapture?.flashMode = flashMode;
+        imageCapture?.flashMode = flashMode
     }
 
     private fun takePhoto() {
         viewBinding.printing.visibility = View.VISIBLE
         viewBinding.viewFinder.visibility = View.INVISIBLE
-
         viewBinding.flashToggleButton.visibility = View.INVISIBLE
         viewBinding.switchCamera.visibility = View.INVISIBLE
         viewBinding.mirrorCamera.visibility = View.INVISIBLE
@@ -132,24 +239,19 @@ class MainActivity : AppCompatActivity() {
         val imageCapture = imageCapture ?: return
 
         val date = System.currentTimeMillis()
-
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
-            .format(date)
+        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(date)
+        
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if(Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
                 put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
             }
         }
 
         val outputOptions = ImageCapture.OutputFileOptions
-            .Builder(contentResolver,
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues)
+            .Builder(contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
             .build()
-
-        val context = this
 
         imageCapture.takePicture(
             outputOptions,
@@ -159,11 +261,8 @@ class MainActivity : AppCompatActivity() {
                     Log.e(TAG, "Sacar foto falló: ${exc.message}", exc)
                 }
 
-                override fun onImageSaved(output: ImageCapture.OutputFileResults){
-                    // val msg = "Sacada foto OK " + output.savedUri
-                    // Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-
-                    val inputStream: InputStream = context.contentResolver.openInputStream(output.savedUri ?: return) ?: return
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val inputStream: InputStream = contentResolver.openInputStream(output.savedUri ?: return) ?: return
                     val bitmap = BitmapFactory.decodeStream(inputStream)
                     inputStream.close()
 
@@ -175,9 +274,44 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
+                }
+
+            imageCapture = ImageCapture.Builder()
+                .setFlashMode(flashMode)
+                .build()
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    this,
+                    cameraSelector,
+                    preview,
+                    imageCapture
+                )
+            } catch (exc: Exception) {
+                Log.e(TAG, "Use case binding failed", exc)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
     private fun printBluetooth(bitmap: Bitmap) {
         Log.i(TAG, "starting print")
-        val resizedBitmap = Bitmap.createScaledBitmap(bitmap, 384, (384 * bitmap.height / bitmap.width.toFloat()).toInt(), true)
+        val resizedBitmap = Bitmap.createScaledBitmap(
+            bitmap,
+            384,
+            (384 * bitmap.height / bitmap.width.toFloat()).toInt(),
+            true
+        )
         Log.i(TAG, "resized")
         val grayscaleBitmap = toGrayscale(resizedBitmap)
         Log.i(TAG, "grayscaled")
@@ -192,9 +326,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         connection?.connect()
-
-        printer?.printFormattedText( text.toString() + viewBinding.footerText.text)
-
+        printer?.printFormattedText(text.toString() + viewBinding.footerText.text)
         connection?.disconnect()
     }
 
@@ -249,12 +381,18 @@ class MainActivity : AppCompatActivity() {
                     for (dx in errorDiffusionMatrix[dy].indices) {
                         val newX = x + dx - 1
                         val newY = y + dy
-                        if (newX < 0 || newX >= width || newY >= height) continue
-                        val newIndex = newY * width + newX
-                        val pixel = pixels[newIndex]
-                        val gray = Color.red(pixel)
-                        val newGrayValue = (gray + error * errorDiffusionMatrix[dy][dx] / 16).coerceIn(0, 255)
-                        pixels[newIndex] = Color.rgb(newGrayValue, newGrayValue, newGrayValue)
+                        if (newX in 0 until width && newY in 0 until height) {
+                            val neighborIndex = newY * width + newX
+                            val neighbor = pixels[neighborIndex]
+                            val neighborGray = Color.red(neighbor)
+                            val diffusedError = error * errorDiffusionMatrix[dy][dx] / 16
+                            val newNeighborGray = (neighborGray + diffusedError).coerceIn(0, 255)
+                            pixels[neighborIndex] = Color.rgb(
+                                newNeighborGray,
+                                newNeighborGray,
+                                newNeighborGray
+                            )
+                        }
                     }
                 }
             }
@@ -264,63 +402,13 @@ class MainActivity : AppCompatActivity() {
         return ditheredBitmap
     }
 
-    private fun startCamera() {
-
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-
-        cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-
-            val preview = Preview.Builder()
-                .build()
-                .also {
-                    it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
-                }
-
-            imageCapture = ImageCapture.Builder()
-                .build()
-
-            viewBinding.viewFinder.scaleX = -1f
-
-            try {
-                cameraProvider.unbindAll()
-
-                cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture)
-
-            } catch(exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
-            }
-
-        }, ContextCompat.getMainExecutor(this))
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        webServer?.stop()
     }
 
     companion object {
-        private const val TAG = "CameraXApp"
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-        private val REQUIRED_PERMISSIONS =
-            mutableListOf (
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN
-            ).apply {
-                if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                    add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                }
-            }.toTypedArray()
+        private const val REQUEST_CODE_PERMISSIONS = 10
     }
-
-    private val activityResultLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions())
-        { _ -> startCamera()
-        }
 }
