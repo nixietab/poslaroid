@@ -102,11 +102,14 @@ class MainActivity : AppCompatActivity() {
                         session.parseBody(files)
                         
                         val tempFile = files["image"]
+                        val customText = session.parameters["text"]?.get(0) // Get the text parameter
+                        
                         if (tempFile != null) {
                             val bitmap = BitmapFactory.decodeFile(tempFile)
                             if (bitmap != null) {
                                 runOnUiThread {
-                                    printBluetooth(bitmap)
+                                    // Pass the custom text to the print function
+                                    printBluetooth(bitmap, customText)
                                 }
                                 return newFixedLengthResponse("Image received and printing started")
                             }
@@ -304,30 +307,48 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-    private fun printBluetooth(bitmap: Bitmap) {
+    private fun printBluetooth(bitmap: Bitmap, customText: String? = null) {
         Log.i(TAG, "starting print")
-        val resizedBitmap = Bitmap.createScaledBitmap(
-            bitmap,
-            384,
-            (384 * bitmap.height / bitmap.width.toFloat()).toInt(),
-            true
-        )
-        Log.i(TAG, "resized")
-        val grayscaleBitmap = toGrayscale(resizedBitmap)
-        Log.i(TAG, "grayscaled")
-        val ditheredBitmap = floydSteinbergDithering(grayscaleBitmap)
-        Log.i(TAG, "floydsteinberg")
+        try {
+            // Resize the bitmap
+            val resizedBitmap = Bitmap.createScaledBitmap(
+                bitmap,
+                384,
+                (384 * bitmap.height / bitmap.width.toFloat()).toInt(),
+                true
+            )
+            Log.i(TAG, "resized")
+            
+            // Convert to grayscale
+            val grayscaleBitmap = toGrayscale(resizedBitmap)
+            Log.i(TAG, "grayscaled")
+            
+            // Apply dithering
+            val ditheredBitmap = floydSteinbergDithering(grayscaleBitmap)
+            Log.i(TAG, "floydsteinberg")
 
-        val text = StringBuilder()
-        for (y in 0 until ditheredBitmap.height step 32) {
-            val segmentHeight = if (y + 32 > ditheredBitmap.height) ditheredBitmap.height - y else 32
-            val segment = Bitmap.createBitmap(ditheredBitmap, 0, y, ditheredBitmap.width, segmentHeight)
-            text.append("<img>" + PrinterTextParserImg.bitmapToHexadecimalString(printer, segment, false) + "</img>\n")
+            // Build the text for printing
+            val text = StringBuilder()
+            
+            // Process bitmap in 32-pixel height segments
+            for (y in 0 until ditheredBitmap.height step 32) {
+                val segmentHeight = if (y + 32 > ditheredBitmap.height) ditheredBitmap.height - y else 32
+                val segment = Bitmap.createBitmap(ditheredBitmap, 0, y, ditheredBitmap.width, segmentHeight)
+                text.append("<img>" + PrinterTextParserImg.bitmapToHexadecimalString(printer, segment, false) + "</img>\n")
+            }
+
+            // Use custom text if provided, otherwise use default text from viewBinding.footerText
+            val footerText = customText ?: viewBinding.footerText.text.toString()
+
+            // Connect to printer and print
+            connection?.connect()
+            printer?.printFormattedText(text.toString() + footerText)
+            connection?.disconnect()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(baseContext, e.message, Toast.LENGTH_LONG).show()
         }
-
-        connection?.connect()
-        printer?.printFormattedText(text.toString() + viewBinding.footerText.text)
-        connection?.disconnect()
     }
 
     fun toGrayscale(bitmap: Bitmap): Bitmap {
